@@ -932,6 +932,67 @@ class EditarUnidadeEspecial(Resource):
         return ('', 200)
 
 
+@api.route('/editor/vigencia_tipo_alimentacao/<string:id_vigencia>')
+@api.route('/editor/vigencia_tipo_alimentacao/')
+@api.doc(params={'id_vigencia': 'id da vigencia'})
+class EditarVigenciaTipoAlimentacao(Resource):
+    def get(self, id_vigencia):
+        """retorna dados de uma vigência tipo alimentação pelo editor"""
+        key = request.headers.get('key')
+        if key != API_KEY:
+            return ('', 401)
+        query = {'_id': id_vigencia, 'status': 'ativo'}
+        fields = {'_id': False, 'status': False}
+        special_unit = db.vigencias_tipo_alimentacao.find_one(query, fields)
+        if special_unit:
+            response = app.response_class(
+                response=json_util.dumps(special_unit),
+                status=200,
+                mimetype='application/json'
+            )
+        else:
+            response = app.response_class(
+                response=json_util.dumps({'erro': 'Vigência tipo alimentação inexistente'}),
+                status=404,
+                mimetype='application/json'
+            )
+        return response
+
+    def post(self, id_vigencia=None):
+        """atualiza dados de uma vigência tipo alimentação pelo editor"""
+        key = request.headers.get('key')
+        if key != API_KEY:
+            return ('', 401)
+        app.logger.debug(request.json)
+        try:
+            payload = request.json
+            if '_id' in payload:
+                del payload['_id']
+        except:
+            return app.response_class(
+                response=json_util.dumps({'erro': 'Dados POST não é um JSON válido'}),
+                status=500,
+                mimetype='application/json'
+            )
+        db.vigencias_tipo_alimentacao.update_one(
+            {'_id': ObjectId(id_vigencia)},
+            {'$set': payload},
+            upsert=True)
+        return ('', 200)
+
+    def delete(self, id_vigencia):
+        """exclui uma vigência tipo alimentação pelo editor"""
+        key = request.headers.get('key')
+        if key != API_KEY:
+            return ('', 401)
+        try:
+            db.vigencias_tipo_alimentacao.delete_one(
+                {'_id': ObjectId(id_vigencia)})
+        except:
+            return ('', 400)
+        return ('', 200)
+
+
 @api.route('/editor/unidades_especiais')
 @api.response(200, 'lista de unidades especiais')
 class ListaUnidadesEspeciais(Resource):
@@ -1107,6 +1168,45 @@ class EscolasEditais(Resource):
             mimetype='application/json'
         )
 
+
+@api.route('/editor/vigencias_tipo_alimentacao', '/editor/vigencias_tipo_alimentacao/<string:id>')
+@api.response(200, 'Lista de vigências de tipo de alimentação ou item específico')
+class ListaVigenciasTipoAlimentacao(Resource):
+    def get(self, id=None):
+        """Retorna lista de vigências ou uma vigência específica se id for informado"""
+        fields = {
+            '_id': True,
+            'data_criacao': True,
+            'data_inicio': True,
+            'data_fim': True,
+            'escola_id': True,
+            'refeicoes': True
+        }
+
+        if id:  # buscar apenas um
+            try:
+                # tenta converter para ObjectId, se não for, usa direto
+                obj_id = ObjectId(id)
+            except Exception:
+                obj_id = id  # se você estiver usando ids customizados (string/numérico)
+
+            doc = db.vigencias_tipo_alimentacao.find_one({'_id': obj_id}, fields)
+            if not doc:
+                return {"message": "Vigência não encontrada"}, 404
+
+            return app.response_class(
+                response=json_util.dumps(doc),
+                status=200,
+                mimetype='application/json'
+            )
+
+        # caso não tenha id, retorna a lista
+        cursor = db.vigencias_tipo_alimentacao.find({}, fields)
+        return app.response_class(
+            response=json_util.dumps(cursor),
+            status=200,
+            mimetype='application/json'
+        )
 
 if __name__ == '__main__':
     app.run()
