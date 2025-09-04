@@ -306,7 +306,7 @@ def _get_school_by_name(school_name):
         if refeicoes[category]:
             new_list_category.append(refeicoes[category])
 
-    return new_list_category, school[0]['idades']
+    return new_list_category, school[0]['idades'], school[0]['refeicoes']
 
 
 def _get_school_id(school_name):
@@ -356,7 +356,7 @@ class ReportPdf(Resource):
         response_menu = adjust_ages(find_menu_json(request, data, is_pdf=True))
         response = {}
 
-        menu_type_by_school, _ = _get_school_by_name(request.args.get('nome'))
+        menu_type_by_school, _, _ = _get_school_by_name(request.args.get('nome'))
 
         formated_data = _reorganizes_data_menu(response_menu)
         date_organizes = _reorganizes_date(formated_data)
@@ -629,11 +629,11 @@ def find_menu_json(request_data, dia, is_pdf=False):
                            'P - 2 A 3 ANOS PARCIAL', 'Q - 4 A 6 ANOS PARCIAL', 'H - ADULTO', 'Z - UNIDADES SEM FAIXA',
                            'S - FILHOS PRO JOVEM', 'V - PROFESSOR', 'U - PROFESSOR JANTAR CEI',
                            'T - TURMAS DO INFANTIL']
-    category_by_school = None
     school_ages = None
+    refeicoes_raw = None
 
     if request_data.args.get('nome'):
-        category_by_school, school_ages = _get_school_by_name(request_data.args.get('nome'))
+        category_by_school, school_ages, refeicoes_raw = _get_school_by_name(request_data.args.get('nome'))
 
     for i in definicao_ordenacao:
         for c in _cardapios:
@@ -643,6 +643,24 @@ def find_menu_json(request_data, dia, is_pdf=False):
 
     for c in cardapio_ordenado:
         try:
+            refeicoes_copia = refeicoes_raw.copy()
+            vigente, nao_vigente = _get_vigencias_by_school_id(school_id, c['data'])
+
+            # Adiciona os vigentes que ainda não estão
+            for r in vigente:
+                if r not in refeicoes_copia:
+                    refeicoes_copia.append(r)
+
+            # Remove os não vigentes que ainda estão
+            for r in nao_vigente:
+                if r in refeicoes_copia:
+                    refeicoes_copia.remove(r)
+
+            category_by_school = []
+            for category in refeicoes_copia:
+                if refeicoes[category]:
+                    category_by_school.append(refeicoes[category])
+
             c['idade'] = idades[c['idade']]
             c['cardapio'] = {refeicoes[k]: v for k, v in c['cardapio'].items()}
             if category_by_school:
@@ -657,6 +675,27 @@ def find_menu_json(request_data, dia, is_pdf=False):
         cardapio_ordenado = remove_refeicao_duplicada_sme_conv(cardapio_ordenado)
 
     return cardapio_ordenado
+
+
+def _get_vigencias_by_school_id(school_id, data_str):
+    data_ref = datetime.strptime(data_str, "%Y%m%d")
+
+    vigencias = db.vigencias_tipo_alimentacao.find({"escola_id": str(school_id)})
+    resultado = {"vigente": [], "nao_vigente": []}
+
+    for vigencia in vigencias:
+        data_inicio = vigencia.get("data_inicio")
+        data_fim = vigencia.get("data_fim")
+
+        data_inicio = datetime.strptime(data_inicio, "%Y%m%d") if data_inicio else None
+        data_fim = datetime.strptime(data_fim, "%Y%m%d") if data_fim else None
+
+        if (data_inicio is None or data_ref >= data_inicio) and (data_fim is None or data_ref <= data_fim):
+            resultado["vigente"].extend(vigencia.get("refeicoes", []))
+        else:
+            resultado["nao_vigente"].extend(vigencia.get("refeicoes", []))
+
+    return resultado["vigente"], resultado["nao_vigente"]
 
 
 @api.route('/editor/cardapios')
