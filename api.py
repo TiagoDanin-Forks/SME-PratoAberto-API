@@ -545,6 +545,24 @@ def wipe_unused(basedir, limit):
         print("Removed {} files.".format(count))
 
 
+def limpar_cardapios(dados):
+    try:
+        keys_para_remover = set(dados[0]["cardapio"].keys())
+        for obj in dados:
+            for key, value in obj["cardapio"].items():
+                if value != ['-']:
+                    keys_para_remover.discard(key)
+
+        for obj in dados:
+            for key in keys_para_remover:
+                obj["cardapio"].pop(key, None)
+    except IndexError:
+        return dados
+
+    return dados
+
+
+
 def find_menu_json(request_data, dia, is_pdf=False):
     """ Return json's menu from a school """
     school_name = request_data.args.get('nome')
@@ -629,6 +647,7 @@ def find_menu_json(request_data, dia, is_pdf=False):
                            'P - 2 A 3 ANOS PARCIAL', 'Q - 4 A 6 ANOS PARCIAL', 'H - ADULTO', 'Z - UNIDADES SEM FAIXA',
                            'S - FILHOS PRO JOVEM', 'V - PROFESSOR', 'U - PROFESSOR JANTAR CEI',
                            'T - TURMAS DO INFANTIL']
+    category_by_school = None
     school_ages = None
     refeicoes_raw = None
 
@@ -656,17 +675,26 @@ def find_menu_json(request_data, dia, is_pdf=False):
                 if r in refeicoes_copia:
                     refeicoes_copia.remove(r)
 
-            category_by_school = []
+            category_by_school_pos_vigencias = []
             for category in refeicoes_copia:
                 if refeicoes[category]:
-                    category_by_school.append(refeicoes[category])
+                    category_by_school_pos_vigencias.append(refeicoes[category])
+
+            diff = list(set(category_by_school) ^ set(category_by_school_pos_vigencias))
 
             c['idade'] = idades[c['idade']]
             c['cardapio'] = {refeicoes[k]: v for k, v in c['cardapio'].items()}
-            if category_by_school:
-                c['cardapio'] = {k: v for k, v in c['cardapio'].items() if k in category_by_school}
+            if category_by_school_pos_vigencias:
+                c['cardapio'] = {k: v for k, v in c['cardapio'].items() if k in category_by_school_pos_vigencias}
+
+            if diff and is_pdf:
+                for refeicao_diff in diff:
+                    c['cardapio'][refeicao_diff] = ['-']
+
         except KeyError as e:
             app.logger.debug('erro de chave: {} objeto {}'.format(str(e), c))
+
+    cardapio_ordenado = limpar_cardapios(cardapio_ordenado)
 
     for c in cardapio_ordenado:
         c['cardapio'] = sort_cardapio_por_refeicao(c['cardapio'])
