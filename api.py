@@ -1247,6 +1247,7 @@ class ListaVigenciasTipoAlimentacao(Resource):
             'data_inicio': True,
             'data_fim': True,
             'escola_id': True,
+            'escola': True,
             'refeicoes': True
         }
         if id:  # buscar apenas um
@@ -1276,7 +1277,7 @@ class ListaVigenciasTipoAlimentacao(Resource):
                     query['escola_id'] = str(eol)
                 else:
                     nome = extract_chars(nome_ou_eol)
-                    query['nome'] = {'$regex': nome.replace(' ', '.*'), '$options': 'i'}
+                    query['escola'] = {'$regex': nome.replace(' ', '.*'), '$options': 'i'}
         cursor = db.vigencias_tipo_alimentacao.find(query, fields)
         return app.response_class(
             response=json_util.dumps(cursor),
