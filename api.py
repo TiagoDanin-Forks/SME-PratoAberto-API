@@ -1249,7 +1249,6 @@ class ListaVigenciasTipoAlimentacao(Resource):
             'escola_id': True,
             'refeicoes': True
         }
-
         if id:  # buscar apenas um
             try:
                 # tenta converter para ObjectId, se não for, usa direto
@@ -1268,7 +1267,17 @@ class ListaVigenciasTipoAlimentacao(Resource):
             )
 
         # caso não tenha id, retorna a lista
-        cursor = db.vigencias_tipo_alimentacao.find({}, fields)
+        query = {}
+        if request.args:
+            nome_ou_eol = request.args.get('nome', None)
+            if nome_ou_eol:
+                if any(char.isdigit() for char in nome_ou_eol):
+                    eol = extract_digits(nome_ou_eol)
+                    query['escola_id'] = str(eol)
+                else:
+                    nome = extract_chars(nome_ou_eol)
+                    query['nome'] = {'$regex': nome.replace(' ', '.*'), '$options': 'i'}
+        cursor = db.vigencias_tipo_alimentacao.find(query, fields)
         return app.response_class(
             response=json_util.dumps(cursor),
             status=200,
