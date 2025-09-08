@@ -87,3 +87,18 @@ def datetime_range(start=None, end=None):
     for i in range(span.days + 1):
         dates.append((start + datetime.timedelta(days=i)).strftime('%Y%m%d'))
     return dates
+
+
+def limpar_cardapios(dados):
+    try:
+        keys_para_remover = set(dados[0]["cardapio"].keys())
+        for obj in dados:
+            for key, value in obj["cardapio"].items():
+                if value != ['-']:
+                    keys_para_remover.discard(key)
+        for obj in dados:
+            for key in keys_para_remover:
+                obj["cardapio"].pop(key, None)
+    except IndexError:
+        return dados
+    return dados

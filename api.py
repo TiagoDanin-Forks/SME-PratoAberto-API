@@ -19,7 +19,7 @@ from utils import (sort_cardapio_por_refeicao,
                    extract_digits,
                    extract_chars,
                    remove_refeicao_duplicada_sme_conv,
-                   datetime_range)
+                   datetime_range, limpar_cardapios)
 
 load_dotenv()
 
@@ -543,24 +543,6 @@ def wipe_unused(basedir, limit):
                 os.remove(path)
                 count += 1
         print("Removed {} files.".format(count))
-
-
-def limpar_cardapios(dados):
-    try:
-        keys_para_remover = set(dados[0]["cardapio"].keys())
-        for obj in dados:
-            for key, value in obj["cardapio"].items():
-                if value != ['-']:
-                    keys_para_remover.discard(key)
-
-        for obj in dados:
-            for key in keys_para_remover:
-                obj["cardapio"].pop(key, None)
-    except IndexError:
-        return dados
-
-    return dados
-
 
 
 def find_menu_json(request_data, dia, is_pdf=False):
@@ -1250,12 +1232,11 @@ class ListaVigenciasTipoAlimentacao(Resource):
             'escola': True,
             'refeicoes': True
         }
-        if id:  # buscar apenas um
+        if id:
             try:
-                # tenta converter para ObjectId, se não for, usa direto
                 obj_id = ObjectId(id)
             except Exception:
-                obj_id = id  # se você estiver usando ids customizados (string/numérico)
+                obj_id = id
 
             doc = db.vigencias_tipo_alimentacao.find_one({'_id': obj_id}, fields)
             if not doc:
@@ -1267,7 +1248,6 @@ class ListaVigenciasTipoAlimentacao(Resource):
                 mimetype='application/json'
             )
 
-        # caso não tenha id, retorna a lista
         query = {}
         if request.args:
             nome_ou_eol = request.args.get('nome', None)
@@ -1284,6 +1264,7 @@ class ListaVigenciasTipoAlimentacao(Resource):
             status=200,
             mimetype='application/json'
         )
+
 
 if __name__ == '__main__':
     app.run()
