@@ -19,7 +19,7 @@ from utils import (sort_cardapio_por_refeicao,
                    extract_digits,
                    extract_chars,
                    remove_refeicao_duplicada_sme_conv,
-                   datetime_range)
+                   datetime_range, limpar_cardapios)
 
 load_dotenv()
 
@@ -306,7 +306,7 @@ def _get_school_by_name(school_name):
         if refeicoes[category]:
             new_list_category.append(refeicoes[category])
 
-    return new_list_category, school[0]['idades']
+    return new_list_category, school[0]['idades'], school[0]['refeicoes']
 
 
 def _get_school_id(school_name):
@@ -356,7 +356,7 @@ class ReportPdf(Resource):
         response_menu = adjust_ages(find_menu_json(request, data, is_pdf=True))
         response = {}
 
-        menu_type_by_school, _ = _get_school_by_name(request.args.get('nome'))
+        menu_type_by_school, _, _ = _get_school_by_name(request.args.get('nome'))
 
         formated_data = _reorganizes_data_menu(response_menu)
         date_organizes = _reorganizes_date(formated_data)
@@ -631,9 +631,10 @@ def find_menu_json(request_data, dia, is_pdf=False):
                            'T - TURMAS DO INFANTIL']
     category_by_school = None
     school_ages = None
+    refeicoes_raw = None
 
     if request_data.args.get('nome'):
-        category_by_school, school_ages = _get_school_by_name(request_data.args.get('nome'))
+        category_by_school, school_ages, refeicoes_raw = _get_school_by_name(request_data.args.get('nome'))
 
     for i in definicao_ordenacao:
         for c in _cardapios:
@@ -643,12 +644,39 @@ def find_menu_json(request_data, dia, is_pdf=False):
 
     for c in cardapio_ordenado:
         try:
+            refeicoes_copia = refeicoes_raw.copy()
+            vigente, nao_vigente = _get_vigencias_by_school_id(school_id, c['data'])
+
+            # Adiciona os vigentes que ainda não estão
+            for r in vigente:
+                if r not in refeicoes_copia:
+                    refeicoes_copia.append(r)
+
+            # Remove os não vigentes que ainda estão
+            for r in nao_vigente:
+                if r in refeicoes_copia:
+                    refeicoes_copia.remove(r)
+
+            category_by_school_pos_vigencias = []
+            for category in refeicoes_copia:
+                if refeicoes[category]:
+                    category_by_school_pos_vigencias.append(refeicoes[category])
+
+            diff = list(set(category_by_school) ^ set(category_by_school_pos_vigencias))
+
             c['idade'] = idades[c['idade']]
             c['cardapio'] = {refeicoes[k]: v for k, v in c['cardapio'].items()}
-            if category_by_school:
-                c['cardapio'] = {k: v for k, v in c['cardapio'].items() if k in category_by_school}
+            if category_by_school_pos_vigencias:
+                c['cardapio'] = {k: v for k, v in c['cardapio'].items() if k in category_by_school_pos_vigencias}
+
+            if diff and is_pdf:
+                for refeicao_diff in diff:
+                    c['cardapio'][refeicao_diff] = ['-']
+
         except KeyError as e:
             app.logger.debug('erro de chave: {} objeto {}'.format(str(e), c))
+
+    cardapio_ordenado = limpar_cardapios(cardapio_ordenado)
 
     for c in cardapio_ordenado:
         c['cardapio'] = sort_cardapio_por_refeicao(c['cardapio'])
@@ -657,6 +685,27 @@ def find_menu_json(request_data, dia, is_pdf=False):
         cardapio_ordenado = remove_refeicao_duplicada_sme_conv(cardapio_ordenado)
 
     return cardapio_ordenado
+
+
+def _get_vigencias_by_school_id(school_id, data_str):
+    data_ref = datetime.strptime(data_str, "%Y%m%d")
+
+    vigencias = db.vigencias_tipo_alimentacao.find({"escola_id": str(school_id)})
+    resultado = {"vigente": [], "nao_vigente": []}
+
+    for vigencia in vigencias:
+        data_inicio = vigencia.get("data_inicio")
+        data_fim = vigencia.get("data_fim")
+
+        data_inicio = datetime.strptime(data_inicio, "%Y%m%d") if data_inicio else None
+        data_fim = datetime.strptime(data_fim, "%Y%m%d") if data_fim else None
+
+        if (data_inicio is None or data_ref >= data_inicio) and (data_fim is None or data_ref <= data_fim):
+            resultado["vigente"].extend(vigencia.get("refeicoes", []))
+        else:
+            resultado["nao_vigente"].extend(vigencia.get("refeicoes", []))
+
+    return resultado["vigente"], resultado["nao_vigente"]
 
 
 @api.route('/editor/cardapios')
@@ -932,6 +981,67 @@ class EditarUnidadeEspecial(Resource):
         return ('', 200)
 
 
+@api.route('/editor/vigencia_tipo_alimentacao/<string:id_vigencia>')
+@api.route('/editor/vigencia_tipo_alimentacao/')
+@api.doc(params={'id_vigencia': 'id da vigencia'})
+class EditarVigenciaTipoAlimentacao(Resource):
+    def get(self, id_vigencia):
+        """retorna dados de uma vigência tipo alimentação pelo editor"""
+        key = request.headers.get('key')
+        if key != API_KEY:
+            return ('', 401)
+        query = {'_id': id_vigencia, 'status': 'ativo'}
+        fields = {'_id': False, 'status': False}
+        special_unit = db.vigencias_tipo_alimentacao.find_one(query, fields)
+        if special_unit:
+            response = app.response_class(
+                response=json_util.dumps(special_unit),
+                status=200,
+                mimetype='application/json'
+            )
+        else:
+            response = app.response_class(
+                response=json_util.dumps({'erro': 'Vigência tipo alimentação inexistente'}),
+                status=404,
+                mimetype='application/json'
+            )
+        return response
+
+    def post(self, id_vigencia=None):
+        """atualiza dados de uma vigência tipo alimentação pelo editor"""
+        key = request.headers.get('key')
+        if key != API_KEY:
+            return ('', 401)
+        app.logger.debug(request.json)
+        try:
+            payload = request.json
+            if '_id' in payload:
+                del payload['_id']
+        except:
+            return app.response_class(
+                response=json_util.dumps({'erro': 'Dados POST não é um JSON válido'}),
+                status=500,
+                mimetype='application/json'
+            )
+        db.vigencias_tipo_alimentacao.update_one(
+            {'_id': ObjectId(id_vigencia)},
+            {'$set': payload},
+            upsert=True)
+        return ('', 200)
+
+    def delete(self, id_vigencia):
+        """exclui uma vigência tipo alimentação pelo editor"""
+        key = request.headers.get('key')
+        if key != API_KEY:
+            return ('', 401)
+        try:
+            db.vigencias_tipo_alimentacao.delete_one(
+                {'_id': ObjectId(id_vigencia)})
+        except:
+            return ('', 400)
+        return ('', 200)
+
+
 @api.route('/editor/unidades_especiais')
 @api.response(200, 'lista de unidades especiais')
 class ListaUnidadesEspeciais(Resource):
@@ -1103,6 +1213,54 @@ class EscolasEditais(Resource):
             response['data'] = 'Edital criado com sucesso'
         return app.response_class(
             response=json_util.dumps(response),
+            status=200,
+            mimetype='application/json'
+        )
+
+
+@api.route('/editor/vigencias_tipo_alimentacao', '/editor/vigencias_tipo_alimentacao/<string:id>')
+@api.response(200, 'Lista de vigências de tipo de alimentação ou item específico')
+class ListaVigenciasTipoAlimentacao(Resource):
+    def get(self, id=None):
+        """Retorna lista de vigências ou uma vigência específica se id for informado"""
+        fields = {
+            '_id': True,
+            'data_criacao': True,
+            'data_inicio': True,
+            'data_fim': True,
+            'escola_id': True,
+            'escola': True,
+            'refeicoes': True
+        }
+        if id:
+            try:
+                obj_id = ObjectId(id)
+            except Exception:
+                obj_id = id
+
+            doc = db.vigencias_tipo_alimentacao.find_one({'_id': obj_id}, fields)
+            if not doc:
+                return {"message": "Vigência não encontrada"}, 404
+
+            return app.response_class(
+                response=json_util.dumps(doc),
+                status=200,
+                mimetype='application/json'
+            )
+
+        query = {}
+        if request.args:
+            nome_ou_eol = request.args.get('nome', None)
+            if nome_ou_eol:
+                if any(char.isdigit() for char in nome_ou_eol):
+                    eol = extract_digits(nome_ou_eol)
+                    query['escola_id'] = str(eol)
+                else:
+                    nome = extract_chars(nome_ou_eol)
+                    query['escola'] = {'$regex': nome.replace(' ', '.*'), '$options': 'i'}
+        cursor = db.vigencias_tipo_alimentacao.find(query, fields)
+        return app.response_class(
+            response=json_util.dumps(cursor),
             status=200,
             mimetype='application/json'
         )
