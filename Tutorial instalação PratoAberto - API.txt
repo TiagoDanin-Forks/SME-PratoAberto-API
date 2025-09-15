@@ -1,0 +1,52 @@
+API:
+
+> git clone https://github.com/prefeiturasp/SME-PratoAberto-API
+
+(instalar pyenv se não tiver)
+> pyenv install 3.6.15
+> pyenv local 3.6.15
+
+criar virtual env para API
+
+> python3.6 -m venv prato
+> source prato/bin/activate
+
+instalar bibliotecas
+
+> pip install -r requirements.txt
+
+subir docker com imagem do mongo
+
+> docker compose -f docker-compose-dev.yml up -d
+
+carregar dump (arquivos .bson e .json) do prato para container
+
+> cd pratoaberto (pasta com os dumps)
+
+docker cp cardapios.bson <container_id>:/tmp/cardapios.bson
+docker cp cardapios.metadata.json <container_id>:/tmp/cardapios.metadata.json
+docker cp escolas.bson <container_id>:/tmp/escolas.bson
+docker cp escolas.metadata.json <container_id>:/tmp/escolas.metadata.json
+docker cp notas.bson <container_id>:/tmp/notas.bson
+docker cp notas.metadata.json <container_id>:/tmp/notas.metadata.json
+docker cp unidades_especiais.bson <container_id>:/tmp/unidades_especiais.bson
+docker cp unidades_especiais.metadata.json <container_id>:/tmp/unidades_especiais.metadata.json
+docker cp usuarios.bson <container_id>:/tmp/usuarios.bson
+docker cp usuarios.metadata.json <container_id>:/tmp/usuarios.metadata.json
+
+> docker exec -it <container_id> bash
+
+dentro do container, carregar os dados:
+
+mongorestore --db pratoaberto --collection cardapios /tmp/cardapios.bson
+mongorestore --db pratoaberto --collection escolas /tmp/escolas.bson
+mongorestore --db pratoaberto --collection notas /tmp/notas.bson
+mongorestore --db pratoaberto --collection unidades_especiais /tmp/unidades_especiais.bson
+mongorestore --db pratoaberto --collection usuarios /tmp/usuarios.bson
+
+> subir a API:
+
+export API_MONGO_URI=localhost:27017
+export FLASK_ENV=production
+export FLASK_APP=api.py
+flask run -p 5000
