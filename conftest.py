@@ -1,11 +1,14 @@
 # coding: utf-8
+import os
+
 import pytest
 
-from api import create_app
+os.environ.setdefault('API_MONGO_URI', 'localhost:27017')
 
 
 @pytest.fixture
 def app():
-    app = create_app()
+    import api
+    app = api.app
     app.debug = True
     return app
