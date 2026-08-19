@@ -413,6 +413,14 @@ class ReportPdf(Resource):
         cpath = os.path.realpath(os.path.dirname(__file__)) + '/static/'
 
         wipe_unused(cpath, 5)
+
+        if not response_menu:
+            return app.response_class(
+                response=json_util.dumps({'erro': 'Nenhum cardápio publicado para o período solicitado.'}),
+                status=404,
+                mimetype='application/json'
+            )
+
         publication_date = parse(response_menu[0]['data_publicacao']).strftime('%d/%m/%Y %H:%M:%S')
 
         html = render_template('cardapio-pdf.html', resp=response, descriptions=formated_data, dates=date_organizes,
@@ -598,10 +606,14 @@ def find_menu_json(request_data, dia, is_pdf=False):
         if ue:
             end = ue['data_fim']
 
+    # Busca a unidade especial cujo período tenha INTERSEÇÃO com o período solicitado,
+    # em vez de exigir que o período solicitado esteja totalmente contido no da unidade.
+    # Isso evita que a impressão falhe quando a semana cruza o início/fim da unidade
+    # (ex: última semana de julho/2024 = 29/07 a 04/08, com unidade terminando em 31/07).
     query_unidade_especial = {
         'escolas': school_id,
-        'data_inicio': {'$lte': start},
-        'data_fim': {'$gte': end}
+        'data_inicio': {'$lte': end},
+        'data_fim': {'$gte': start}
     }
 
     unidade_especial = db.unidades_especiais.find_one(query_unidade_especial)
